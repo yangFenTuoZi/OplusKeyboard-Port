@@ -3,6 +3,7 @@ package com.oplus.keyboard.compat;
 import android.content.Context;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.provider.Settings;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
@@ -27,6 +28,15 @@ public final class AospCompat {
     private static int toPlatformHapticEffect(int effect) {
         return effect >= 300 && effect < 400
                 ? HapticFeedbackConstants.KEYBOARD_TAP : effect;
+    }
+
+    public static void vibrateVoiceFeedback(Context context) {
+        VibratorManager manager = context.getSystemService(VibratorManager.class);
+        if (manager == null || !manager.getDefaultVibrator().hasVibrator()) {
+            return;
+        }
+        manager.getDefaultVibrator().vibrate(
+                VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
     }
 
     public static void vibrateKey(Vibrator vibrator, int level, Long[] durations,

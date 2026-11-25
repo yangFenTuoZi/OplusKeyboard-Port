@@ -46,6 +46,7 @@ public final class PatchDex {
     private static final String EDITOR_APPS = "Lc/a/c/i/obf/M;";
     private static final String SIGNATURE_READER = "Lcom/heytap/omas/a/e/b;";
     private static final String SOUND = KEYBOARD + "base/util/V;";
+    private static final String LINEAR_MOTOR = KEYBOARD + "base/util/C;";
     private static final String SETTINGS_PREFS = KEYBOARD + "base/data/o;";
     private static final String IME = KEYBOARD + "service/ImeService;";
     private static final String APP_SETTINGS = KEYBOARD + "base/data/o;";
@@ -85,6 +86,7 @@ public final class PatchDex {
                 "触感反馈", 31, "触感开关", 2, "键盘模糊开关", 1, "键盘模糊平台条件", 1,
                 "系统设置搜索", 1, "键盘模糊描边", 1));
         expected.put("白盒证书读取", 1);
+        expected.put("语音触感", 1);
         if (!hits.equals(expected)) {
             throw new IllegalStateException("补丁位置与预期不符。实际 " + hits + "，预期 " + expected);
         }
@@ -144,6 +146,15 @@ public final class PatchDex {
                                         AMPLITUDES, EFFECT_TYPES)),
                         new ImmutableInstruction10x(Opcode.RETURN_VOID));
                 hits.merge("按键触感", 1, Integer::sum);
+            } else if (owner.equals(LINEAR_MOTOR)
+                    && method.equals(ref(LINEAR_MOTOR, "a", "V", "I"))) {
+                replacement = body(2,
+                        call(ref(KEYBOARD + "b;", "a", CONTEXT), 0, 0, 0, 0, 0),
+                        new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0),
+                        call(ref(COMPAT, "vibrateVoiceFeedback", "V", CONTEXT),
+                                1, 0, 0, 0, 0),
+                        new ImmutableInstruction10x(Opcode.RETURN_VOID));
+                hits.merge("语音触感", 1, Integer::sum);
             } else if (owner.equals(BLUR) && method.equals(ref(BLUR, "b", "Z"))) {
                 replacement = patchBlurPlatformCheck(original);
                 hits.merge("键盘模糊平台条件", 1, Integer::sum);
