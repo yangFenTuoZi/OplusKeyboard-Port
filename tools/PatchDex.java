@@ -4,27 +4,27 @@ import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MethodImplementation;
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction;
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.OffsetInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;
 import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction35c;
 import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction3rc;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
 import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableDexFile;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction10x;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction11x;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction11n;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction12x;
-import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction22c;
-import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction22t;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction21c;
-import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction21s;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction35c;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction3rc;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableFieldReference;
@@ -42,7 +42,6 @@ import java.util.Map;
 public final class PatchDex {
     private static final String KEYBOARD = "Lcom/oplus/keyboard/";
     private static final String COMPAT = KEYBOARD + "compat/AospCompat;";
-    private static final String DEVICE = KEYBOARD + "utils/h;";
     private static final String BLUR = KEYBOARD + "base/util/f;";
     private static final String BLUR_CONTAINER = "Lcom/heytap/common/bean/d;";
     private static final String EDITOR_APPS = "Lc/a/c/i/obf/M;";
@@ -83,7 +82,7 @@ public final class PatchDex {
         }
 
         Map<String, Integer> expected = new HashMap<>(Map.of(
-                "设备形态", 1, "按键触感", 1, "导航栏", 1, "内测资格", 1,
+                "按键触感", 1, "导航栏", 1, "内测资格", 1,
                 "触感反馈", 31, "触感开关", 2, "键盘模糊开关", 1, "键盘模糊平台条件", 1,
                 "系统设置搜索", 1, "键盘模糊描边", 1));
         expected.put("证书代理入口", 1);
@@ -117,28 +116,6 @@ public final class PatchDex {
                         new ImmutableInstruction11n(Opcode.CONST_4, 0, 1),
                         new ImmutableInstruction11x(Opcode.RETURN, 0));
                 hits.merge("内测资格", 1, Integer::sum);
-            } else if (owner.equals(DEVICE) && method.equals(ref(DEVICE, "r", "Z"))) {
-                replacement = body(3,
-                        call(ref(KEYBOARD + "b;", "a", CONTEXT), 0, 0, 0, 0, 0),
-                        new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0),
-                        new ImmutableInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0,
-                                ref(CONTEXT, "getResources", "Landroid/content/res/Resources;")),
-                        new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, 1),
-                        new ImmutableInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 1, 0, 0, 0, 0,
-                                ref("Landroid/content/res/Resources;", "getConfiguration",
-                                        "Landroid/content/res/Configuration;")),
-                        new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, 1),
-                        new ImmutableInstruction22c(Opcode.IGET, 1, 1,
-                                new ImmutableFieldReference(
-                                        "Landroid/content/res/Configuration;",
-                                        "smallestScreenWidthDp", "I")),
-                        new ImmutableInstruction21s(Opcode.CONST_16, 2, 600),
-                        new ImmutableInstruction22t(Opcode.IF_GE, 1, 2, 4),
-                        new ImmutableInstruction11n(Opcode.CONST_4, 0, 0),
-                        new ImmutableInstruction11x(Opcode.RETURN, 0),
-                        new ImmutableInstruction11n(Opcode.CONST_4, 0, 1),
-                        new ImmutableInstruction11x(Opcode.RETURN, 0));
-                hits.merge("设备形态", 1, Integer::sum);
             } else if (owner.equals(SOUND) && method.equals(ref(SOUND, "d", "V", "I"))) {
                 replacement = body(9, soundField(0, "h", VIBRATOR),
                         new ImmutableInstruction12x(Opcode.MOVE, 1, 8),
@@ -295,14 +272,28 @@ public final class PatchDex {
     }
 
     private static MethodImplementation patchNavigationBar(MethodImplementation original) {
-        // 保留主题和背景色决定图标明暗的原始分支。所有分支在此处汇合。
-        int appearanceOffset = 0x19;
+        // 两个图标颜色分支的跳转汇合后，替换后续平台专有逻辑。
+        int appearanceOffset = -1;
         int offset = 0;
+        int matchingJumps = 0;
+        for (Instruction instruction : original.getInstructions()) {
+            if (instruction.getOpcode() == Opcode.GOTO && instruction instanceof OffsetInstruction jump) {
+                int target = offset + jump.getCodeOffset();
+                if (appearanceOffset == -1) appearanceOffset = target;
+                if (target == appearanceOffset) matchingJumps++;
+                if (matchingJumps == 2) break;
+            }
+            offset += instruction.getCodeUnits();
+        }
+        if (matchingJumps != 2) throw new IllegalStateException("找不到导航栏颜色分支的汇合点");
+        offset = 0;
         List<Instruction> instructions = new ArrayList<>();
         for (Instruction instruction : original.getInstructions()) {
             if (offset >= appearanceOffset) {
                 if (offset != appearanceOffset || original.getRegisterCount() != 11
-                        || instruction.getOpcode() != Opcode.IF_NEZ) {
+                        || instruction.getOpcode() != Opcode.IF_NEZ
+                        || !(instruction instanceof OneRegisterInstruction check)
+                        || check.getRegisterA() != 10) {
                     throw new IllegalStateException("导航栏方法的指令布局发生变化");
                 }
                 instructions.add(call(ref(COMPAT, "applyNavigationBar", "V", WINDOW, "I", "Z"),
@@ -318,18 +309,23 @@ public final class PatchDex {
 
     private static MethodImplementation patchBlurPlatformCheck(MethodImplementation original) {
         // 设备条件已由 isKeyboardBlurEnabled 检查。保留键盘状态和主题判断。
-        int stateOffset = 0x14;
-        int offset = 0;
+        boolean stateFound = false;
         List<Instruction> instructions = new ArrayList<>();
         instructions.add(new ImmutableInstruction11n(Opcode.CONST_4, 0, 0));
         instructions.add(new ImmutableInstruction11n(Opcode.CONST_4, 3, 1));
         for (Instruction instruction : original.getInstructions()) {
-            if (offset >= stateOffset) {
+            if (!stateFound && instruction.getOpcode() == Opcode.SGET_OBJECT
+                    && instruction instanceof ReferenceInstruction reference
+                    && reference.getReference() instanceof FieldReference field
+                    && field.getDefiningClass().equals(BLUR)
+                    && field.getType().equals("Landroidx/lifecycle/K;")) {
+                stateFound = true;
+            }
+            if (stateFound) {
                 instructions.add(instruction);
             }
-            offset += instruction.getCodeUnits();
         }
-        if (original.getRegisterCount() != 4 || offset != 0x2e || instructions.size() <= 2
+        if (original.getRegisterCount() != 4 || !stateFound || instructions.size() <= 2
                 || instructions.get(2).getOpcode() != Opcode.SGET_OBJECT) {
             throw new IllegalStateException("键盘模糊条件的指令布局发生变化");
         }

@@ -15,7 +15,19 @@ import android.view.inputmethod.EditorInfo;
 import android.util.Log;
 
 public final class AospCompat {
+    private static volatile Context applicationContext;
     private AospCompat() {}
+
+    static void initialize(Context context) {
+        applicationContext = context;
+    }
+
+    public static Context getContext() {
+        if (applicationContext == null) {
+            throw new IllegalStateException("应用上下文尚未初始化");
+        }
+        return applicationContext;
+    }
 
     public static boolean performHapticFeedback(View view, int effect) {
         return view.performHapticFeedback(toPlatformHapticEffect(effect));

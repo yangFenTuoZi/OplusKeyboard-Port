@@ -16,6 +16,7 @@ public final class OriginalCertificate {
     private OriginalCertificate() {}
 
     public static void install(Context context) {
+        AospCompat.initialize(context);
         try (InputStream input = context.getAssets().open("oplus-ime-original-cert.der")) {
             Signature signature = new Signature(input.readAllBytes());
             if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/app/ActivityThread;",
@@ -67,4 +68,5 @@ public final class OriginalCertificate {
             throw new IllegalStateException("无法安装原版证书代理", exception);
         }
     }
+
 }
