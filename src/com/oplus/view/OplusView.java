@@ -10,7 +10,11 @@ public final class OplusView {
 
     public void damageInParent() {}
 
-    public static void setClipExpandSize(View view, int left, int top, int right, int bottom) {}
+    public static boolean setClipExpandSize(View view, int left, int top, int right, int bottom) {
+        return false;
+    }
 
-    public static void setShadowClippingEnabled(View view, boolean enabled) {}
+    public static boolean setShadowClippingEnabled(View view, boolean enabled) {
+        return false;
+    }
 }

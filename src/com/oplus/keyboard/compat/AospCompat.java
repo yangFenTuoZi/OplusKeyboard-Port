@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 
 import android.util.Log;
 
@@ -77,6 +78,17 @@ public final class AospCompat {
             android.util.Log.w("SettingsPrefs",
                     "Unable to update platform vibration switch", exception);
         }
+    }
+
+    public static boolean isKeyboardBlurEnabled(Context context) {
+        WindowManager windowManager = context.getSystemService(WindowManager.class);
+        return windowManager != null && windowManager.isCrossWindowBlurEnabled()
+                && Settings.System.getInt(context.getContentResolver(),
+                        "system_material_blur_enable", 1) == 1;
+    }
+
+    public static boolean isSettingsSearchEditor(EditorInfo editor) {
+        return editor != null && "com.android.settings.intelligence".equals(editor.packageName);
     }
 
     public static void applyNavigationBar(Window window, int background, boolean darkIcons) {

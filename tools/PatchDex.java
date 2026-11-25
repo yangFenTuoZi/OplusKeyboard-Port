@@ -1,5 +1,9 @@
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.Opcode;
+import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MethodImplementation;
@@ -37,6 +41,9 @@ public final class PatchDex {
     private static final String KEYBOARD = "Lcom/oplus/keyboard/";
     private static final String COMPAT = KEYBOARD + "compat/AospCompat;";
     private static final String DEVICE = KEYBOARD + "utils/h;";
+    private static final String BLUR = KEYBOARD + "base/util/f;";
+    private static final String BLUR_CONTAINER = "Lcom/heytap/common/bean/d;";
+    private static final String EDITOR_APPS = "Lc/a/c/i/obf/M;";
     private static final String SOUND = KEYBOARD + "base/util/V;";
     private static final String SETTINGS_PREFS = KEYBOARD + "base/data/o;";
     private static final String IME = KEYBOARD + "service/ImeService;";
@@ -44,6 +51,7 @@ public final class PatchDex {
     private static final String CONTEXT = "Landroid/content/Context;";
     private static final String VIBRATOR = "Landroid/os/Vibrator;";
     private static final String WINDOW = "Landroid/view/Window;";
+    private static final String EDITOR_INFO = "Landroid/view/inputmethod/EditorInfo;";
     private static final String DURATIONS = "[Ljava/lang/Long;";
     private static final String AMPLITUDES = "[Ljava/lang/Integer;";
     private static final String EFFECT_TYPES = "[Ljava/lang/Integer;";
@@ -73,7 +81,8 @@ public final class PatchDex {
 
         Map<String, Integer> expected = Map.of(
                 "设备形态", 1, "按键触感", 1, "导航栏", 1, "内测资格", 1,
-                "触感反馈", 31, "触感开关", 2);
+                "触感反馈", 31, "触感开关", 2, "键盘模糊开关", 1, "键盘模糊平台条件", 1,
+                "系统设置搜索", 1, "键盘模糊描边", 1);
         if (!hits.equals(expected)) {
             throw new IllegalStateException("补丁位置与预期不符。实际 " + hits + "，预期 " + expected);
         }
@@ -133,6 +142,24 @@ public final class PatchDex {
                                         AMPLITUDES, EFFECT_TYPES)),
                         new ImmutableInstruction10x(Opcode.RETURN_VOID));
                 hits.merge("按键触感", 1, Integer::sum);
+            } else if (owner.equals(BLUR) && method.equals(ref(BLUR, "b", "Z"))) {
+                replacement = patchBlurPlatformCheck(original);
+                hits.merge("键盘模糊平台条件", 1, Integer::sum);
+            } else if (owner.equals(BLUR_CONTAINER) && method.equals(ref(BLUR_CONTAINER, "a", "V"))) {
+                replacement = patchKeyboardEdge(original, hits);
+            } else if (owner.equals(EDITOR_APPS)
+                    && method.equals(ref(EDITOR_APPS, "K", "Z", EDITOR_INFO))) {
+                replacement = patchSettingsSearchEditor(original);
+                hits.merge("系统设置搜索", 1, Integer::sum);
+            } else if (owner.equals(SETTINGS_PREFS)
+                    && method.equals(ref(SETTINGS_PREFS, "j", "Z"))) {
+                replacement = body(1,
+                        call(ref(KEYBOARD + "b;", "a", CONTEXT), 0, 0, 0, 0, 0),
+                        new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0),
+                        call(ref(COMPAT, "isKeyboardBlurEnabled", "Z", CONTEXT), 1, 0, 0, 0, 0),
+                        new ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
+                        new ImmutableInstruction11x(Opcode.RETURN, 0));
+                hits.merge("键盘模糊开关", 1, Integer::sum);
             } else if (owner.equals(SETTINGS_PREFS)
                     && method.equals(ref(SETTINGS_PREFS, "i0", "Z"))) {
                 replacement = body(1,
@@ -232,6 +259,59 @@ public final class PatchDex {
             offset += instruction.getCodeUnits();
         }
         throw new IllegalStateException("找不到导航栏图标明暗分支的汇合点");
+    }
+
+    private static MethodImplementation patchBlurPlatformCheck(MethodImplementation original) {
+        // 设备条件已由 isKeyboardBlurEnabled 检查。保留键盘状态和主题判断。
+        int stateOffset = 0x14;
+        int offset = 0;
+        List<Instruction> instructions = new ArrayList<>();
+        instructions.add(new ImmutableInstruction11n(Opcode.CONST_4, 0, 0));
+        instructions.add(new ImmutableInstruction11n(Opcode.CONST_4, 3, 1));
+        for (Instruction instruction : original.getInstructions()) {
+            if (offset >= stateOffset) {
+                instructions.add(instruction);
+            }
+            offset += instruction.getCodeUnits();
+        }
+        if (original.getRegisterCount() != 4 || offset != 0x2e || instructions.size() <= 2
+                || instructions.get(2).getOpcode() != Opcode.SGET_OBJECT) {
+            throw new IllegalStateException("键盘模糊条件的指令布局发生变化");
+        }
+        return new ImmutableMethodImplementation(4, instructions, List.of(), List.of());
+    }
+
+    private static MethodImplementation patchSettingsSearchEditor(MethodImplementation original) {
+        if (original.getRegisterCount() != 6) {
+            throw new IllegalStateException("模糊应用列表的寄存器布局发生变化");
+        }
+        var implementation = new MutableMethodImplementation(original);
+        var originalStart = implementation.newLabelForIndex(0);
+        implementation.addInstruction(0, new BuilderInstruction35c(Opcode.INVOKE_STATIC,
+                1, 5, 0, 0, 0, 0, ref(COMPAT, "isSettingsSearchEditor", "Z", EDITOR_INFO)));
+        implementation.addInstruction(1, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+        implementation.addInstruction(2, new BuilderInstruction21t(Opcode.IF_EQZ, 0, originalStart));
+        implementation.addInstruction(3, new BuilderInstruction11x(Opcode.RETURN, 0));
+        return implementation;
+    }
+
+    private static MethodImplementation patchKeyboardEdge(MethodImplementation original,
+                                                          Map<String, Integer> hits) {
+        var materialCheck = ref("Lcom/coui/appcompat/COUIMaterialEffect;", "isMaterialVersion", "Z");
+        var shaderCheck = ref("Lcom/coui/appcompat/COUIEffectVersionUtil;", "isRuntimeShaderVersion", "Z");
+        List<Instruction> instructions = new ArrayList<>();
+        for (Instruction instruction : original.getInstructions()) {
+            // 键盘描边使用 RuntimeShader 绘制。这里只替换描边入口的版本判断。
+            if (instruction.getOpcode() == Opcode.INVOKE_STATIC
+                    && instruction instanceof Instruction35c invoke
+                    && materialCheck.equals(invoke.getReference())) {
+                instruction = call(shaderCheck, 0, 0, 0, 0, 0);
+                hits.merge("键盘模糊描边", 1, Integer::sum);
+            }
+            instructions.add(instruction);
+        }
+        return new ImmutableMethodImplementation(original.getRegisterCount(), instructions,
+                original.getTryBlocks(), original.getDebugItems());
     }
 
     private static ImmutableMethodReference ref(String owner, String name, String result,
