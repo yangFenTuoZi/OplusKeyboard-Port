@@ -42,6 +42,10 @@ import java.util.Map;
 public final class PatchDex {
     private static final String KEYBOARD = "Lcom/oplus/keyboard/";
     private static final String COMPAT = KEYBOARD + "compat/AospCompat;";
+    private static final String MATERIAL_STATE = "Lcom/coui/appcompat/COUIMaterialStateManager;";
+    private static final String COUI_BUTTON = "Lcom/coui/appcompat/button/COUIButton;";
+    private static final String BUTTON_COMPAT = KEYBOARD + "compat/CouiButtonCompat;";
+    private static final String TOOLBAR_OVERLAY = "Lcom/coui/appcompat/toolbar/AppBarBlurOverlayView;";
     private static final String BLUR = KEYBOARD + "base/util/f;";
     private static final String BLUR_CONTAINER = "Lcom/heytap/common/bean/d;";
     private static final String EDITOR_APPS = "Lc/a/c/i/obf/M;";
@@ -87,6 +91,10 @@ public final class PatchDex {
                 "系统设置搜索", 1, "键盘模糊描边", 1));
         expected.put("证书代理入口", 1);
         expected.put("语音触感", 1);
+        expected.put("材质动画等级", 1);
+        expected.put("按钮材质判断", 1);
+        expected.put("按钮材质状态", 1);
+        expected.put("工具栏背景模糊", 1);
         if (!hits.equals(expected)) {
             throw new IllegalStateException("补丁位置与预期不符。实际 " + hits + "，预期 " + expected);
         }
@@ -109,7 +117,20 @@ public final class PatchDex {
         for (Method method : cls.getMethods()) {
             MethodImplementation original = method.getImplementation();
             MethodImplementation replacement = original;
-            if (owner.equals(APP) && method.equals(ref(APP, "attachBaseContext", "V", CONTEXT))) {
+            if (owner.equals(COUI_BUTTON) && method.equals(ref(COUI_BUTTON, "applyStrokeEffect", "V"))) {
+                replacement = patchButtonStroke(original, hits);
+            } else if (owner.equals(COUI_BUTTON) && method.equals(ref(COUI_BUTTON, "onAttachedToWindow", "V"))) {
+                replacement = patchButtonAttach(original, hits);
+            } else if (owner.equals(MATERIAL_STATE) && method.equals(ref(MATERIAL_STATE, "isLowAnimationLevel", "Z"))) {
+                replacement = body(2,
+                        new ImmutableInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 1, 0, 0, 0, 0,
+                                ref(MATERIAL_STATE, "getAnimationLevel", "I")),
+                        new ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
+                        call(ref(COMPAT, "isLowAnimationLevel", "Z", "I"), 1, 0, 0, 0, 0),
+                        new ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
+                        new ImmutableInstruction11x(Opcode.RETURN, 0));
+                hits.merge("材质动画等级", 1, Integer::sum);
+            } else if (owner.equals(APP) && method.equals(ref(APP, "attachBaseContext", "V", CONTEXT))) {
                 replacement = patchApplicationAttach(original, hits);
             } else if (owner.equals(APP_SETTINGS) && method.equals(ref(APP_SETTINGS, "l0", "Z"))) {
                 replacement = body(1,
@@ -187,12 +208,69 @@ public final class PatchDex {
                         method.getHiddenApiRestrictions(), replacement));
             }
         }
+        if (owner.equals(TOOLBAR_OVERLAY)) {
+            if (!"Landroid/view/View;".equals(cls.getSuperclass())
+                    || methods.stream().anyMatch(m -> m.equals(ref(owner, "onAttachedToWindow", "V")))) {
+                throw new IllegalStateException("工具栏模糊视图的生命周期发生变化");
+            }
+            methods.add(new ImmutableMethod(owner, "onAttachedToWindow", List.of(), "V", 4,
+                    null, null, body(1,
+                    new ImmutableInstruction35c(Opcode.INVOKE_SUPER, 1, 0, 0, 0, 0, 0,
+                            ref("Landroid/view/View;", "onAttachedToWindow", "V")),
+                    call(ref(KEYBOARD + "compat/ToolbarBackdrop;", "attach", "V", "Landroid/view/View;"),
+                            1, 0, 0, 0, 0),
+                    new ImmutableInstruction10x(Opcode.RETURN_VOID))));
+            hits.merge("工具栏背景模糊", 1, Integer::sum);
+            changed = true;
+        }
         if (!changed) {
             return cls;
         }
         return new ImmutableClassDef(owner, cls.getAccessFlags(), cls.getSuperclass(),
                 cls.getInterfaces(), cls.getSourceFile(), cls.getAnnotations(), cls.getFields(),
                 methods);
+    }
+
+    private static MethodImplementation patchButtonStroke(MethodImplementation original,
+                                                            Map<String, Integer> hits) {
+        var expected = ref("Lcom/coui/appcompat/COUIMaterialEffect;", "isMaterialVersion", "Z");
+        List<Instruction> instructions = new ArrayList<>();
+        for (Instruction instruction : original.getInstructions()) {
+            if (instruction.getOpcode() == Opcode.INVOKE_STATIC
+                    && instruction instanceof Instruction35c invoke
+                    && expected.equals(invoke.getReference())) {
+                int receiver = original.getRegisterCount() - 1;
+                if (receiver > 15) throw new IllegalStateException("COUI 按钮寄存器超出范围");
+                instruction = call(ref(BUTTON_COMPAT, "useDrawableMaterial", "Z", "Landroid/view/View;"),
+                        1, receiver, 0, 0, 0);
+                hits.merge("按钮材质判断", 1, Integer::sum);
+            }
+            instructions.add(instruction);
+        }
+        return new ImmutableMethodImplementation(original.getRegisterCount(), instructions,
+                original.getTryBlocks(), original.getDebugItems());
+    }
+
+    private static MethodImplementation patchButtonAttach(MethodImplementation original,
+                                                            Map<String, Integer> hits) {
+        var implementation = new MutableMethodImplementation(original);
+        int index = -1;
+        for (int i = 0; i < implementation.getInstructions().size(); i++) {
+            var instruction = implementation.getInstructions().get(i);
+            if (instruction instanceof ReferenceInstruction reference
+                    && reference.getReference() instanceof MethodReference method
+                    && method.getDefiningClass().equals(MATERIAL_STATE)
+                    && method.getName().equals("addOnMaterialStateChangedListener")) {
+                if (index != -1) throw new IllegalStateException("COUI 按钮状态监听重复");
+                index = i;
+            }
+        }
+        if (index == -1) throw new IllegalStateException("缺少 COUI 按钮状态监听");
+        implementation.addInstruction(index + 1, new BuilderInstruction3rc(Opcode.INVOKE_STATIC_RANGE,
+                original.getRegisterCount() - 1, 1,
+                ref(BUTTON_COMPAT, "onAttached", "V", "Landroid/view/View;")));
+        hits.merge("按钮材质状态", 1, Integer::sum);
+        return implementation;
     }
 
     private static boolean isVoiceVibration(Method method, MethodImplementation original) {

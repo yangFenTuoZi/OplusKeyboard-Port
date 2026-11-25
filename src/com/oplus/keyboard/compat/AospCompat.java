@@ -1,6 +1,7 @@
 package com.oplus.keyboard.compat;
 
 import android.content.Context;
+import android.app.ActivityManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
@@ -27,6 +28,18 @@ public final class AospCompat {
             throw new IllegalStateException("应用上下文尚未初始化");
         }
         return applicationContext;
+    }
+
+    public static boolean isLowAnimationLevel(int level) {
+        if (level == -1) {
+            ActivityManager manager = getContext().getSystemService(ActivityManager.class);
+            if (manager == null) {
+                Log.w("OplusImeCompat", "无法获取设备内存等级");
+                return true;
+            }
+            return manager.isLowRamDevice();
+        }
+        return level < 1 || level > 3;
     }
 
     public static boolean performHapticFeedback(View view, int effect) {
