@@ -8,6 +8,7 @@ import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MethodImplementation;
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction;
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
 import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction35c;
 import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction3rc;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
@@ -15,6 +16,7 @@ import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableDexFile;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction10x;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction11x;
 import com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction11n;
@@ -44,9 +46,8 @@ public final class PatchDex {
     private static final String BLUR = KEYBOARD + "base/util/f;";
     private static final String BLUR_CONTAINER = "Lcom/heytap/common/bean/d;";
     private static final String EDITOR_APPS = "Lc/a/c/i/obf/M;";
-    private static final String SIGNATURE_READER = "Lcom/heytap/omas/a/e/b;";
+    private static final String APP = KEYBOARD + "ImeApp;";
     private static final String SOUND = KEYBOARD + "base/util/V;";
-    private static final String LINEAR_MOTOR = KEYBOARD + "base/util/C;";
     private static final String SETTINGS_PREFS = KEYBOARD + "base/data/o;";
     private static final String IME = KEYBOARD + "service/ImeService;";
     private static final String APP_SETTINGS = KEYBOARD + "base/data/o;";
@@ -85,7 +86,7 @@ public final class PatchDex {
                 "设备形态", 1, "按键触感", 1, "导航栏", 1, "内测资格", 1,
                 "触感反馈", 31, "触感开关", 2, "键盘模糊开关", 1, "键盘模糊平台条件", 1,
                 "系统设置搜索", 1, "键盘模糊描边", 1));
-        expected.put("白盒证书读取", 1);
+        expected.put("证书代理入口", 1);
         expected.put("语音触感", 1);
         if (!hits.equals(expected)) {
             throw new IllegalStateException("补丁位置与预期不符。实际 " + hits + "，预期 " + expected);
@@ -109,7 +110,9 @@ public final class PatchDex {
         for (Method method : cls.getMethods()) {
             MethodImplementation original = method.getImplementation();
             MethodImplementation replacement = original;
-            if (owner.equals(APP_SETTINGS) && method.equals(ref(APP_SETTINGS, "l0", "Z"))) {
+            if (owner.equals(APP) && method.equals(ref(APP, "attachBaseContext", "V", CONTEXT))) {
+                replacement = patchApplicationAttach(original, hits);
+            } else if (owner.equals(APP_SETTINGS) && method.equals(ref(APP_SETTINGS, "l0", "Z"))) {
                 replacement = body(1,
                         new ImmutableInstruction11n(Opcode.CONST_4, 0, 1),
                         new ImmutableInstruction11x(Opcode.RETURN, 0));
@@ -146,8 +149,7 @@ public final class PatchDex {
                                         AMPLITUDES, EFFECT_TYPES)),
                         new ImmutableInstruction10x(Opcode.RETURN_VOID));
                 hits.merge("按键触感", 1, Integer::sum);
-            } else if (owner.equals(LINEAR_MOTOR)
-                    && method.equals(ref(LINEAR_MOTOR, "a", "V", "I"))) {
+            } else if (isVoiceVibration(method, original)) {
                 replacement = body(2,
                         call(ref(KEYBOARD + "b;", "a", CONTEXT), 0, 0, 0, 0, 0),
                         new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0),
@@ -164,10 +166,6 @@ public final class PatchDex {
                     && method.equals(ref(EDITOR_APPS, "K", "Z", EDITOR_INFO))) {
                 replacement = patchSettingsSearchEditor(original);
                 hits.merge("系统设置搜索", 1, Integer::sum);
-            } else if (owner.equals(SIGNATURE_READER)
-                    && method.equals(ref(SIGNATURE_READER, "b", "Ljava/lang/String;",
-                    CONTEXT, "Ljava/lang/String;"))) {
-                replacement = patchSignatureReader(original, hits);
             } else if (owner.equals(SETTINGS_PREFS)
                     && method.equals(ref(SETTINGS_PREFS, "j", "Z"))) {
                 replacement = body(1,
@@ -220,27 +218,44 @@ public final class PatchDex {
                 methods);
     }
 
-    private static MethodImplementation patchSignatureReader(MethodImplementation original,
-                                                               Map<String, Integer> hits) {
-        var originalReader = ref(SIGNATURE_READER, "a", "[Landroid/content/pm/Signature;",
-                CONTEXT, "Ljava/lang/String;");
-        var certificateReader = ref(KEYBOARD + "compat/OriginalCertificate;", "getSignatures",
-                "[Landroid/content/pm/Signature;", CONTEXT, "Ljava/lang/String;");
-        List<Instruction> instructions = new ArrayList<>();
+    private static boolean isVoiceVibration(Method method, MethodImplementation original) {
+        if (original == null || (method.getAccessFlags() & 8) == 0
+                || !method.getParameterTypes().equals(List.of("I"))
+                || !method.getReturnType().equals("V")) return false;
+        boolean effect = false;
+        boolean vibrate = false;
         for (Instruction instruction : original.getInstructions()) {
-            if (instruction.getOpcode() == Opcode.INVOKE_STATIC
-                    && instruction instanceof Instruction35c invoke
-                    && originalReader.equals(invoke.getReference())) {
-                instruction = new ImmutableInstruction35c(Opcode.INVOKE_STATIC,
-                        invoke.getRegisterCount(), invoke.getRegisterC(), invoke.getRegisterD(),
-                        invoke.getRegisterE(), invoke.getRegisterF(), invoke.getRegisterG(),
-                        certificateReader);
-                hits.merge("白盒证书读取", 1, Integer::sum);
-            }
-            instructions.add(instruction);
+            if (!(instruction instanceof ReferenceInstruction referenceInstruction)
+                    || !(referenceInstruction.getReference() instanceof MethodReference reference)) continue;
+            effect |= reference.equals(ref("Lcom/oplus/os/WaveformEffect$Builder;", "setEffectType",
+                    "Lcom/oplus/os/WaveformEffect$Builder;", "I"));
+            vibrate |= reference.equals(ref("Lcom/oplus/os/LinearmotorVibrator;", "vibrate", "V",
+                    "Lcom/oplus/os/WaveformEffect;"));
         }
-        return new ImmutableMethodImplementation(original.getRegisterCount(), instructions,
-                original.getTryBlocks(), original.getDebugItems());
+        return effect && vibrate;
+    }
+
+    private static MethodImplementation patchApplicationAttach(MethodImplementation original,
+                                                                 Map<String, Integer> hits) {
+        var implementation = new MutableMethodImplementation(original);
+        int index = -1;
+        for (int i = 0; i < implementation.getInstructions().size(); i++) {
+            var instruction = implementation.getInstructions().get(i);
+            if (instruction.getOpcode() == Opcode.INVOKE_SUPER
+                    && instruction instanceof Instruction35c invoke
+                    && invoke.getReference() instanceof MethodReference reference
+                    && reference.getName().equals("attachBaseContext")
+                    && reference.getParameterTypes().equals(List.of(CONTEXT))) {
+                if (index != -1) throw new IllegalStateException("应用入口存在多个父类调用");
+                index = i;
+            }
+        }
+        if (index == -1) throw new IllegalStateException("应用入口缺少父类调用");
+        implementation.addInstruction(index + 1, new BuilderInstruction3rc(Opcode.INVOKE_STATIC_RANGE,
+                original.getRegisterCount() - 2, 1,
+                ref(KEYBOARD + "compat/OriginalCertificate;", "install", "V", CONTEXT)));
+        hits.merge("证书代理入口", 1, Integer::sum);
+        return implementation;
     }
 
     private static MethodImplementation patchHapticFeedback(MethodImplementation original,

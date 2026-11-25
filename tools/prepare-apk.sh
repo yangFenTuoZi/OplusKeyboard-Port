@@ -58,7 +58,18 @@ if [[ "$cert_sha256" != fc98dae63ad39626c8c67fbe83f2f06f74932a9cd146b92cecfc6a04
 fi
 "$build_tools/d8" --min-api 33 --lib "$android_jar" --output "$temp/d8" \
     "$temp/hiddenapibypass.jar" $(find "$temp/compat" -name "*.class")
-mv -- "$temp/d8/classes.dex" "$temp/patch/classes5.dex"
+next_dex=2
+while IFS= read -r entry; do
+    if [[ "$entry" =~ ^classes([0-9]+)\.dex$ ]]; then
+        number=${BASH_REMATCH[1]}
+        if (( number >= next_dex )); then next_dex=$((number + 1)); fi
+    fi
+done < <(unzip -Z1 "$input")
+if [[ ! -f "$temp/d8/classes.dex" || -e "$temp/d8/classes2.dex" ]]; then
+    printf '兼容代码的 DEX 输出不符合预期\n' >&2
+    exit 1
+fi
+mv -- "$temp/d8/classes.dex" "$temp/patch/classes${next_dex}.dex"
 cp -- "$input" "$temp/unsigned.apk"
 zip -q -d "$temp/unsigned.apk" META-INF/ANDROIDP.SF META-INF/ANDROIDP.RSA \
     META-INF/MANIFEST.MF assets/dexopt/baseline.prof assets/dexopt/baseline.profm
