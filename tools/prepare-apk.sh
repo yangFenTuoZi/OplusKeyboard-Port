@@ -48,6 +48,14 @@ if [[ -e "$output" || -L "$output" || ! -d "$(dirname -- "$output")" ]]; then
 fi
 mkdir -- "$temp/patch" "$temp/d8"
 "${patch_dex[@]}" "$temp/patch"
+mkdir -- "$temp/patch/assets"
+unzip -p "$input" META-INF/ANDROIDP.RSA | openssl pkcs7 -inform DER -print_certs \
+    | openssl x509 -outform DER > "$temp/patch/assets/oplus-ime-original-cert.der"
+cert_sha256=$(sha256sum "$temp/patch/assets/oplus-ime-original-cert.der" | cut -d ' ' -f 1)
+if [[ "$cert_sha256" != fc98dae63ad39626c8c67fbe83f2f06f74932a9cd146b92cecfc6a047a904386 ]]; then
+    printf '原版 APK 的公开证书不符合预期\n' >&2
+    exit 1
+fi
 "$build_tools/d8" --min-api 33 --lib "$android_jar" --output "$temp/d8" \
     "$temp/hiddenapibypass.jar" $(find "$temp/compat" -name "*.class")
 mv -- "$temp/d8/classes.dex" "$temp/patch/classes5.dex"
@@ -56,7 +64,7 @@ zip -q -d "$temp/unsigned.apk" META-INF/ANDROIDP.SF META-INF/ANDROIDP.RSA \
     META-INF/MANIFEST.MF assets/dexopt/baseline.prof assets/dexopt/baseline.profm
 (
     cd -- "$temp/patch"
-    zip -q "$temp/unsigned.apk" classes*.dex
+    zip -q "$temp/unsigned.apk" classes*.dex assets/oplus-ime-original-cert.der
 )
 "$build_tools/zipalign" -P 16 -f 4 "$temp/unsigned.apk" "$temp/aligned.apk"
 "$build_tools/zipalign" -c -P 16 4 "$temp/aligned.apk"

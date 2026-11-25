@@ -44,6 +44,7 @@ public final class PatchDex {
     private static final String BLUR = KEYBOARD + "base/util/f;";
     private static final String BLUR_CONTAINER = "Lcom/heytap/common/bean/d;";
     private static final String EDITOR_APPS = "Lc/a/c/i/obf/M;";
+    private static final String SIGNATURE_READER = "Lcom/heytap/omas/a/e/b;";
     private static final String SOUND = KEYBOARD + "base/util/V;";
     private static final String SETTINGS_PREFS = KEYBOARD + "base/data/o;";
     private static final String IME = KEYBOARD + "service/ImeService;";
@@ -79,10 +80,11 @@ public final class PatchDex {
             }
         }
 
-        Map<String, Integer> expected = Map.of(
+        Map<String, Integer> expected = new HashMap<>(Map.of(
                 "设备形态", 1, "按键触感", 1, "导航栏", 1, "内测资格", 1,
                 "触感反馈", 31, "触感开关", 2, "键盘模糊开关", 1, "键盘模糊平台条件", 1,
-                "系统设置搜索", 1, "键盘模糊描边", 1);
+                "系统设置搜索", 1, "键盘模糊描边", 1));
+        expected.put("白盒证书读取", 1);
         if (!hits.equals(expected)) {
             throw new IllegalStateException("补丁位置与预期不符。实际 " + hits + "，预期 " + expected);
         }
@@ -151,6 +153,10 @@ public final class PatchDex {
                     && method.equals(ref(EDITOR_APPS, "K", "Z", EDITOR_INFO))) {
                 replacement = patchSettingsSearchEditor(original);
                 hits.merge("系统设置搜索", 1, Integer::sum);
+            } else if (owner.equals(SIGNATURE_READER)
+                    && method.equals(ref(SIGNATURE_READER, "b", "Ljava/lang/String;",
+                    CONTEXT, "Ljava/lang/String;"))) {
+                replacement = patchSignatureReader(original, hits);
             } else if (owner.equals(SETTINGS_PREFS)
                     && method.equals(ref(SETTINGS_PREFS, "j", "Z"))) {
                 replacement = body(1,
@@ -201,6 +207,29 @@ public final class PatchDex {
         return new ImmutableClassDef(owner, cls.getAccessFlags(), cls.getSuperclass(),
                 cls.getInterfaces(), cls.getSourceFile(), cls.getAnnotations(), cls.getFields(),
                 methods);
+    }
+
+    private static MethodImplementation patchSignatureReader(MethodImplementation original,
+                                                               Map<String, Integer> hits) {
+        var originalReader = ref(SIGNATURE_READER, "a", "[Landroid/content/pm/Signature;",
+                CONTEXT, "Ljava/lang/String;");
+        var certificateReader = ref(KEYBOARD + "compat/OriginalCertificate;", "getSignatures",
+                "[Landroid/content/pm/Signature;", CONTEXT, "Ljava/lang/String;");
+        List<Instruction> instructions = new ArrayList<>();
+        for (Instruction instruction : original.getInstructions()) {
+            if (instruction.getOpcode() == Opcode.INVOKE_STATIC
+                    && instruction instanceof Instruction35c invoke
+                    && originalReader.equals(invoke.getReference())) {
+                instruction = new ImmutableInstruction35c(Opcode.INVOKE_STATIC,
+                        invoke.getRegisterCount(), invoke.getRegisterC(), invoke.getRegisterD(),
+                        invoke.getRegisterE(), invoke.getRegisterF(), invoke.getRegisterG(),
+                        certificateReader);
+                hits.merge("白盒证书读取", 1, Integer::sum);
+            }
+            instructions.add(instruction);
+        }
+        return new ImmutableMethodImplementation(original.getRegisterCount(), instructions,
+                original.getTryBlocks(), original.getDebugItems());
     }
 
     private static MethodImplementation patchHapticFeedback(MethodImplementation original,
