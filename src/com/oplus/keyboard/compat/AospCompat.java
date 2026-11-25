@@ -15,12 +15,33 @@ import android.view.inputmethod.EditorInfo;
 
 import android.util.Log;
 
+import org.lsposed.hiddenapibypass.HiddenApiBypass;
+
+import java.lang.reflect.Field;
+
 public final class AospCompat {
     private static volatile Context applicationContext;
     private AospCompat() {}
 
     static void initialize(Context context) {
         applicationContext = context;
+        setHwrDeviceIdentity();
+    }
+
+    private static void setHwrDeviceIdentity() {
+        try {
+            HiddenApiBypass.addHiddenApiExemptions("Landroid/os/Build;");
+            Field manufacturer = android.os.Build.class.getDeclaredField("MANUFACTURER");
+            Field brand = android.os.Build.class.getDeclaredField("BRAND");
+            manufacturer.setAccessible(true);
+            brand.setAccessible(true);
+            manufacturer.set(null, "OnePlus");
+            brand.set(null, "OnePlus");
+            Log.i("OplusImeCompat", "HWR device identity: manufacturer="
+                    + android.os.Build.MANUFACTURER + ", brand=" + android.os.Build.BRAND);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            Log.w("OplusImeCompat", "Unable to set HWR device identity", exception);
+        }
     }
 
     public static Context getContext() {
